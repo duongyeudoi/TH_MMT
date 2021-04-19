@@ -14,35 +14,48 @@ clientSocket = socket(AF_INET, SOCK_STREAM)
 clientSocket.connect(mailServer)
 # Fill in end
 
-recv = clientSocket.recv(1024).decode()
-print("Output1: ", recv)
-if recv[:3] != '220':
+recv1 = clientSocket.recv(1024).decode()
+print("Output1: ", recv1)
+if recv1[:3] != '220':
     print('220 reply not received from server.')
+    exit()
 
 # Send HELO command and print server response.
 helloCommand = 'HELO quanghuy\r\n'
 clientSocket.send(helloCommand.encode())
-recv1 = clientSocket.recv(1024).decode()
-print("Output2:", recv1)
-if recv1[:3] != '250':
+recv2 = clientSocket.recv(1024).decode()
+print("Output2:", recv2)
+if recv2[:3] != '250':
     print('250 reply not received from server.')
+    exit()
 
 tlsMsg = "starttls\r\n"
 clientSocket.send(tlsMsg.encode())
-print("Output3: ", clientSocket.recv(1024).decode())
+recv3 = clientSocket.recv(1024).decode()
+print("Output3: ",recv3)
+if recv3[:3] != '220':
+    print('Cannot start tls')
+    exit()
 
 wrappedSocket = ssl.wrap_socket(clientSocket,
                                 ssl_version=ssl.PROTOCOL_SSLv23,)
+while True:
+    wrappedSocket.send("auth login\r\n".encode())
+    print("Output4:", wrappedSocket.recv(1024).decode())
 
-wrappedSocket.send("auth login\r\n".encode())
-print("Output4:", wrappedSocket.recv(1024).decode())
-account = input("account:")
-password = input("password:")
-wrappedSocket.send(base64.b64encode(account.encode())+'\r\n'.encode())
-print("Output5:", wrappedSocket.recv(1024).decode())
-wrappedSocket.send(base64.b64encode(password.encode())+'\r\n'.encode())
-recv6 = wrappedSocket.recv(1024).decode()
-print("Output6:", recv6)
+    account = input("account: ")
+    wrappedSocket.send(base64.b64encode(account.encode())+'\r\n'.encode())
+    print("Output5:", wrappedSocket.recv(1024).decode())
+
+    password = input("password: ")
+    wrappedSocket.send(base64.b64encode(password.encode())+'\r\n'.encode())
+    recv6 = wrappedSocket.recv(1024).decode()
+    print("Output6:", recv6)
+
+    if recv6[:3] != '235':
+        print("Failed to log in, please try again")
+    else:
+        break
 
 # Send MAIL FROM command and print server response.
 # Fill in start
@@ -53,10 +66,17 @@ print("Output7:", wrappedSocket.recv(1024).decode())
 
 # Send RCPT TO command and print server response.
 # Fill in start
-rcptMailAccount = input("ToMail:")
-rcptToMsg = "RCPT to: <"+rcptMailAccount+">\r\n"
-wrappedSocket.send(rcptToMsg.encode())
-print("Output8:", wrappedSocket.recv(1024).decode())
+while True:
+    rcptMailAccount = input("ToMail:")
+    rcptToMsg = "RCPT to: <"+rcptMailAccount+">\r\n"
+    wrappedSocket.send(rcptToMsg.encode())
+    recv8 = wrappedSocket.recv(1024).decode()
+    print("Output8:", recv8)
+    if recv8[:3] != '250':
+        print("Invalid mailbox, please try again")
+    else:
+        break
+
 # Fill in end
 
 # Send DATA command and print server response.
@@ -72,10 +92,10 @@ subject = input("Subject:")
 wrappedSocket.send(("Subject: "+subject+"\r\n").encode())
 wrappedSocket.send(("From: "+account+"\r\n").encode())
 wrappedSocket.send(("To: "+rcptMailAccount+"\r\n").encode())
-print("START MESSAGE")
+print("PLEASE ENTER MESSAGE")
 while True:
     message = input()
-    if message == "END MESSAGE":
+    if message == "END":
         break
     wrappedSocket.send((message+"\n").encode())
 # Fill in end
