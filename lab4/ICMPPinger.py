@@ -4,96 +4,123 @@ import sys
 import struct
 import time
 import select
-import binascii
 
-
+# Request type
 ICMP_ECHO_REQUEST = 8
 
+# Reqquest type code
+ICMP_CODE = getprotobyname('icmp')
+
+
+# Checksum of packet
 def checksum(string):
-    csum = 0
-    countTo = (len(string) // 2) * 2
+    string = bytearray(string)
+    c_sum = 0
+    count_to = (len(string) // 2) * 2
     count = 0
 
-    while count < countTo:
-        thisVal = ord(string[count - 1]) * 256 + ord(string[count])
-        csum = csum + thisVal
-        csum = csum & 0xffffffff
+    while count < count_to:
+        thisVal = string[count - 1] * 256 + string[count]
+        c_sum = c_sum + thisVal
+        c_sum = c_sum & 0xffffffff
         count = count + 2
 
-    if countTo < len(string):
-        csum = csum + ord(string[len(string) - 1])
-        csum = csum & 0xffffffff
+    if count_to < len(string):
+        c_sum = c_sum + string[len(string) - 1]
+        c_sum = c_sum & 0xffffffff
 
-    csum = (csum >> 16) + (csum & 0xffff)
-    csum = csum + (csum >> 16)
-    answer = ~csum
+    c_sum = (c_sum >> 16) + (c_sum & 0xffff)
+    c_sum = c_sum + (c_sum >> 16)
+    answer = ~c_sum
     answer = answer & 0xffff
     answer = answer >> 8 | (answer << 8 & 0xff00)
 
     return answer
 
-def receiveOnePing(mySocket, ID, timeout, destAddr):
-    timeLeft = timeout
+
+# Receive the ping from the socket
+def receive_one_ping(my_socket, ID, timeout):
+    time_left = timeout
 
     while True:
-        startedSelect = time.time()
-        whatReady = select.select([mySocket], [], [], timeLeft)
-        howLongInSelect = time.time() - startedSelect
-        if whatReady[0] == []:
+        # Started time
+        started_select = time.time()
+        # Provide access to a channel
+        ready = select.select([my_socket], [], [], time_left)
+        how_long_in_select = time.time() - started_select
+
+        # Check if the channel is empty
+        if ready[0] == []:
             return "Request timed out."
 
-        timeReceived = time.time()
-        recPacket, addr = mySocket.recvfrom(1024)
+        time_received = time.time()
+        # Receive data from my socket
+        rec_packet, addr = my_socket.recvfrom(1024)
+        # ICMP header: bytes from 20 to 28 of the first 160 bits
+        icmp_header = rec_packet[20:28]
+        # Convert ICMP header into decimal
+        icmp_type, code, my_checksum, packet_ID, sequence = struct.unpack("bbHHh", icmp_header)
 
-        icmpHeader = recPacket[20:28]
-        icmpType, code, myChecksum, packetID, sequence = struct.unpack("bbHHh", icmpHeader)
+        if type != 8 and packet_ID == ID:
+            bytes_in_double = struct.calcsize("d")
+            # Get the sequence value in the reply
+            time_sent = struct.unpack("d", rec_packet[28:28 + bytes_in_double])[0]
+            return time_received - time_sent
 
-        if type != 8 and packetID == ID:
-            bytesInDouble = struct.calcsize("d")
-            timeSent = struct.unpack("d", recPacket[28:28 + bytesInDouble])[0]
-            return timeReceived - timeSent
+        time_left = time_left - how_long_in_select
 
-        if timeLeft <= 0:
+        if time_left <= 0:
             return "Request timed out."
 
-def sendOnePing(mySocket, destAddr, ID):
 
-    myChecksum = 0
-
-    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, myChecksum, ID, 1)
+# Send a single ping to an end system
+def send_one_ping(my_socket, dest_addr, ID):
+    my_checksum = 0
+    # Create a header to send over to the end system with a zero checksum
+    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
     data = struct.pack("d", time.time())
-    myChecksum = checksum(header + data)
+    # Get the checksum
+    my_checksum = checksum(header + data)
 
     if sys.platform == 'darwin':
-        myChecksum = htons(myChecksum) & 0xffff
+        # Convert 16-bit integers from host to network
+        my_checksum = htons(my_checksum) & 0xffff
     else:
-        myChecksum = htons(myChecksum)
-
-    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, myChecksum, ID, 1)
+        # Get from host to network
+        my_checksum = htons(my_checksum)
+    # Recreate the header
+    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
     packet = header + data
-    mySocket.sendto(packet, (destAddr, 1))
+    my_socket.sendto(packet, (dest_addr, 1))
 
-def doOnePing(destAddr, timeout):
-    icmp = getprotobyname("icmp")
-    mySocket = socket(AF_INET, SOCK_DGRAM, icmp)
 
-    myID = os.getpid() & 0xffff
+# Return time taken to perform a ping to an address
+def do_one_ping(dest_addr, timeout):
+    # Create new socket
+    try:
+        my_socket = socket(AF_INET, SOCK_RAW, ICMP_CODE)
+    except error:
+        if error.errno == 1:
+            print("Failed to create socket with the given destination")
 
-    sendOnePing(mySocket, destAddr, myID)
-    delay = receiveOnePing(mySocket, myID, timeout, destAddr)
+    my_ID = os.getpid() & 0xffff
 
-    mySocket.close()
+    send_one_ping(my_socket, dest_addr, my_ID)
+    delay = receive_one_ping(my_socket, my_ID, timeout)
+
+    my_socket.close()
 
     return delay
 
-def ping(host, timeout = 1):
+
+def ping(host, timeout=1):
     dest = gethostbyname(host)
     print("Pinging " + dest)
     while True:
-        delay = doOnePing(dest, timeout)
+        delay = do_one_ping(dest, timeout)
         print(delay)
         time.sleep(1)
     return delay
 
-ping("127.0.0.1")
 
+ping("facebook.com")
