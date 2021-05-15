@@ -8,7 +8,7 @@ import select
 # Request type
 ICMP_ECHO_REQUEST = 8
 
-# Reqquest type code
+# Request type code
 ICMP_CODE = getprotobyname('icmp')
 
 
@@ -39,8 +39,8 @@ def checksum(string):
 
 
 # Receive the ping from the socket
-def receive_one_ping(my_socket, ID, timeout):
-    time_left = timeout
+def receive_one_ping(my_socket, ID, time_out):
+    time_left = time_out
 
     while True:
         # Started time
@@ -50,7 +50,7 @@ def receive_one_ping(my_socket, ID, timeout):
         how_long_in_select = time.time() - started_select
 
         # Check if the channel is empty
-        if ready[0] == []:
+        if not ready[0]:
             return "Request timed out."
 
         time_received = time.time()
@@ -74,10 +74,10 @@ def receive_one_ping(my_socket, ID, timeout):
 
 
 # Send a single ping to an end system
-def send_one_ping(my_socket, dest_addr, ID):
+def send_one_ping(my_socket, dest_addr, id):
     my_checksum = 0
     # Create a header to send over to the end system with a zero checksum
-    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
+    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, id, 1)
     data = struct.pack("d", time.time())
     # Get the checksum
     my_checksum = checksum(header + data)
@@ -89,38 +89,50 @@ def send_one_ping(my_socket, dest_addr, ID):
         # Get from host to network
         my_checksum = htons(my_checksum)
     # Recreate the header
-    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, ID, 1)
+    header = struct.pack("bbHHh", ICMP_ECHO_REQUEST, 0, my_checksum, id, 1)
     packet = header + data
     my_socket.sendto(packet, (dest_addr, 1))
 
 
 # Return time taken to perform a ping to an address
-def do_one_ping(dest_addr, timeout):
+def do_one_ping(dest_addr, time_out):
     # Create new socket
     try:
         my_socket = socket(AF_INET, SOCK_RAW, ICMP_CODE)
+        my_id = os.getpid() & 0xffff
+        send_one_ping(my_socket, dest_addr, my_id)
+        delay = receive_one_ping(my_socket, my_id, time_out)
+        my_socket.close()
+        return delay
     except error:
         if error.errno == 1:
             print("Failed to create socket with the given destination")
 
-    my_ID = os.getpid() & 0xffff
+def ping(host, time_out=1.0):
 
-    send_one_ping(my_socket, dest_addr, my_ID)
-    delay = receive_one_ping(my_socket, my_ID, timeout)
-
-    my_socket.close()
-
-    return delay
-
-
-def ping(host, timeout=1):
+    minimum_rrt = 1000000000
+    maximum_rrt = 0
+    avg_rrt = 0
+    cnt = 0
     dest = gethostbyname(host)
-    print("Pinging " + dest)
-    while True:
-        delay = do_one_ping(dest, timeout)
-        print(delay)
+    package_lost = 0
+    print("Pinging", dest)
+    while cnt < 10:
+        delay = do_one_ping(dest, time_out)
+        cnt = cnt + 1
+        print("Package", cnt)
+        print("Delay:", delay)
+        if delay == "Request timed out.":
+            package_lost += 1
+        else:
+            avg_rrt += delay
+            minimum_rrt = min(minimum_rrt, delay)
+            maximum_rrt = max(maximum_rrt, delay)
+
+        print("package receive: ", cnt - package_lost, "/", cnt)
+        if cnt-package_lost > 0:
+            print("RRT: min=", minimum_rrt, " max=", maximum_rrt, " avg=", avg_rrt / (cnt - package_lost))
+        print()
         time.sleep(1)
-    return delay
 
-
-ping("facebook.com")
+ping("facebook.com.vn", 0.02)
