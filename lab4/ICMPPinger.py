@@ -65,10 +65,13 @@ def receive_one_ping(my_socket, ID, time_out):
             bytes_in_double = struct.calcsize("d")
             # Get the sequence value in the reply
             time_sent = struct.unpack("d", rec_packet[28:28 + bytes_in_double])[0]
+
+            if time_received - time_sent > time_left:
+                return "Request timed out."
+
             return time_received - time_sent
 
         time_left = time_left - how_long_in_select
-
         if time_left <= 0:
             return "Request timed out."
 
@@ -135,4 +138,4 @@ def ping(host, time_out=1.0):
         print()
         time.sleep(1)
 
-ping("facebook.com.vn", 0.02)
+ping("facebook.com.vn", 1)
